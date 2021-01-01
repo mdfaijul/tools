@@ -10,6 +10,8 @@ from .quantize_graph_concatv2 import FuseNodeStartWithConcatV2
 from .quantize_graph_matmul import FuseNodeStartWithMatmul
 from .quantize_graph_pooling import FuseNodeStartWithPooling
 from .quantize_graph_pad import FuseNodeStartWithPad
+from .quantize_graph_fused_matmul import FuseNodeStartWithFusedMatmul
+from .quantize_graph_batch_matmul import FuseNodeStartWithBatchMatmul
 
 
 class QuantizeGraphForIntel(QuantizeGraphBase):
@@ -54,6 +56,9 @@ class QuantizeGraphForIntel(QuantizeGraphBase):
         self.register_transformer("ConcatV2", FuseNodeStartWithConcatV2)
         self.register_transformer("Pad", FuseNodeStartWithPad)
         self.register_transformer("MatMul", FuseNodeStartWithMatmul)
+        self.register_transformer("_FusedMatMul", FuseNodeStartWithFusedMatmul)
+        self.register_transformer("BatchMatMulV2", FuseNodeStartWithBatchMatmul)
+        self.register_transformer("_MklFusedBatchMatMulV2", FuseNodeStartWithBatchMatmul)
 
         self.input_graph = QuantizeGraphHelper.split_shared_inputs(
             self.input_graph, self.transformers.keys())

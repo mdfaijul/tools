@@ -134,6 +134,11 @@ class QuantizeGraphHelper(object):
                 value, dtype=dtype, shape=shape)))
 
     @staticmethod
+    def set_attr_string_list(node, key, value):
+        list_value = attr_value_pb2.AttrValue.ListValue(s=value)
+        node.attr[key].CopyFrom(attr_value_pb2.AttrValue(list=list_value))
+
+    @staticmethod
     def set_attr_string(node, key, value):
         node.attr[key].CopyFrom(attr_value_pb2.AttrValue(s=value))
 

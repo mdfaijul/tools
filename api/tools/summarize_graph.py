@@ -154,7 +154,7 @@ def summarize_graph(graph):
             out_nodes_name.append(node.name)
 
     for function in graph.library.function:
-        for node in function.node_def():
+        for node in function.node_def:
             if node.op in op_counts.keys():
                 op_counts[node.op] += 1
             else:
@@ -163,7 +163,7 @@ def summarize_graph(graph):
     op_counts_vec = sorted(op_counts.items(), key=lambda item: item[1], reverse=True)
     print("Op types used: ")
     for v in op_counts_vec:
-        print(v[1], "", v[0], ",", end="")
+        print(v[1], v[0], ", ", end="")
     print("")
 
     return in_nodes_name, out_nodes_name

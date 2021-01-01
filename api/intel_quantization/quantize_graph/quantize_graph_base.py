@@ -256,20 +256,25 @@ class QuantizeNodeBase(object):
             self.node_name_mapping[original_node].node.input[0])
         input_names = []
         min_max_names = []
-        for each_input_name in self.node_name_mapping[original_node].node.input:
+        # for each_input_name in self.node_name_mapping[original_node].node.input:
+        for indx in [0, 1]:
+            each_input_name = self.node_name_mapping[original_node].node.input[indx]
             if each_input_name[0] == '^':
                 continue
             input_node_name = helper.node_name_from_input(each_input_name)
-            if self.intel_cpu_eightbitize and input_node_name in self.output_node_maps:
-                dtype = dtypes.DType(
-                    self.output_node_maps[input_node_name].attr["T"].type
-                ) if self.output_node_maps[
-                    input_node_name].op == "Dequantize" else dtypes.quint8
+            # if self.intel_cpu_eightbitize and input_node_name in self.output_node_maps:
+            #     dtype = dtypes.DType(
+            #         self.output_node_maps[input_node_name].attr["T"].type
+            #     ) if self.output_node_maps[
+            #         input_node_name].op == "Dequantize" else dtypes.quint8
+            # else:
+            #     dtype = dtypes.quint8 if self._find_relu_node(
+            #         self.node_name_mapping[original_node].node
+            #     ) else dtypes.qint8
+            if self.node_name_mapping[original_node].node.op in ('BatchMatMulV2', '_MklFusedBatchMatMulV2'):
+              dtype = dtypes.qint8
             else:
-                dtype = dtypes.quint8 if self._find_relu_node(
-                    self.node_name_mapping[original_node].node
-                ) else dtypes.qint8
-
+              dtype = dtypes.quint8 if indx == 0 else dtypes.qint8
             quantize_input_name, min_input_name, max_input_name = (
                 self._eightbitize_input_to_node(namespace_prefix,
                                                 each_input_name,
@@ -511,6 +516,22 @@ class QuantizeNodeBase(object):
         """Takes one float input to an op, and converts it to quantized form."""
         unique_input_name = helper.unique_node_name_from_input(
             original_input_name)
+        original_input_node = self.node_name_mapping[original_input_name].node
+        if original_input_node.attr["T"].type:
+          input_dtype = original_input_node.attr["T"].type
+        elif original_input_node.attr["dtype"].type:
+          input_dtype = original_input_node.attr["dtype"].type
+        elif original_input_node.attr["Toutput"].type:
+          input_dtype = original_input_node.attr["Toutput"].type
+        else:
+          raise ValueError("No data type info found.")
+        input_dtype = dtypes.DType(input_dtype)
+        # Min-Max should be float32, so cast bfloat16 to float32
+        cast_node_name = namespace_prefix + "_cast_" + unique_input_name
+        cast_node = helper.create_node("Cast", cast_node_name, [original_input_name])
+        helper.set_attr_dtype(cast_node, "SrcT", input_dtype)
+        helper.set_attr_dtype(cast_node, "DstT", dtypes.float32)
+        self.add_output_graph_node(cast_node)
         if unique_input_name in self.quantized_node_dict:
             quantized_tuple = self.quantized_node_dict[unique_input_name]
             return quantized_tuple[0], quantized_tuple[1], quantized_tuple[2]
@@ -521,7 +542,7 @@ class QuantizeNodeBase(object):
         quantize_input_name = namespace_prefix + "_quantize_" + unique_input_name
         reshape_input_node = helper.create_node(
             "Reshape", reshape_input_name,
-            [original_input_name, reshape_dims_name])
+            [cast_node_name, reshape_dims_name])
         helper.set_attr_dtype(reshape_input_node, "T", dtypes.float32)
         self.add_output_graph_node(reshape_input_node)
         min_input_node = helper.create_node(
@@ -541,10 +562,15 @@ class QuantizeNodeBase(object):
             [original_input_name, min_input_name, max_input_name])
 
         helper.set_attr_dtype(quantize_input_node, "T", dtype)
+        helper.set_attr_dtype(quantize_input_node, "dtype", input_dtype)
 
-        helper.set_attr_string(quantize_input_node, "mode", b"SCALED")
-        helper.set_attr_string(quantize_input_node, "round_mode",
-                               b"HALF_TO_EVEN")
+        if dtype==dtypes.qint8:
+          helper.set_attr_string(quantize_input_node, "mode", b"SCALED")
+          helper.set_attr_string(quantize_input_node, "round_mode", b"HALF_TO_EVEN")
+        else:
+          helper.set_attr_string(quantize_input_node, "mode", b"MIN_FIRST")
+          helper.set_attr_string(quantize_input_node, "round_mode",
+                                 b"HALF_AWAY_FROM_ZERO")
         # if FLAGS.model_name in ["wide_deep_large_ds"]:
         #    set_attr_string(quantize_input_node, "mode", b"MIN_FIRST")
         # else:
@@ -570,46 +596,62 @@ class QuantizeNodeBase(object):
         qint8_const_name = base_name + "qint8_const"
         min_name = base_name + "min"
         max_name = base_name + "max"
-        float_tensor = tensor_util.MakeNdarray(input_node.attr["value"].tensor)
+        float_tensor = (tensor_util.MakeNdarray(input_node.attr["value"].tensor)).astype(np.float32)
         epsilon = 1e-4  # Needs to be set empirically if accuracy is not satisfactory
-        if parent in ("Conv2D", "MatMul"):
+        if parent in ("Conv2D", "MatMul", "_FusedMatMul"):
             if per_channel:
-                ranges = np.abs(float_tensor).max(axis=(0, 1, 2))
-                min_value = -ranges
-                max_value = ranges
-                # nudging min-max values outside epsilon radius around zero
-                ranges[ranges < epsilon] = epsilon
-                min_value[np.abs(min_value) < epsilon] = -epsilon
-                max_value[np.abs(max_value) < epsilon] = epsilon
-                qint8_tensor = (float_tensor * 127.0 / ranges).astype(np.int8)
+                if parent == "Conv2D":
+                    ranges = np.abs(float_tensor).max(axis=(0, 1, 2))
+                    min_value = -ranges
+                    max_value = ranges
+                    # nudging min-max values outside epsilon radius around zero
+                    ranges[ranges < epsilon] = epsilon
+                    min_value[np.abs(min_value) < epsilon] = -epsilon
+                    max_value[np.abs(max_value) < epsilon] = epsilon
+                    qint8_tensor = (float_tensor * 127.0 / ranges).astype(np.int8)
+                else:
+                    min_value = np.min(float_tensor, axis=0)
+                    max_value = np.max(float_tensor, axis=0)
+                    range_value = np.max(np.abs([min_value, max_value]), axis=0)
+                    qint8_tensor = float_tensor * 127.0 / range_value
+                    qint8_tensor = np.clip(qint8_tensor, -127, 127).astype(np.int8)
+                    min_value = -range_value
+                    max_value = range_value
             else:
-                min_value = np.min(float_tensor.flatten())
-                max_value = np.max(float_tensor.flatten())
-                # Same processing of min-max as in quantize_weight_eightbit
-                # function.
-                if min_value > 0.0:
-                    min_value = 0.0
-                if min_value == max_value:
-                    if abs(min_value) < 0.000001:
-                        max_value = min_value + 1.0
-                    elif min_value > 0:
-                        max_value = 2 * min_value
-                    else:
-                        max_value = min_value / 2.0
+                min_value = np.min(float_tensor)
+                max_value = np.max(float_tensor)
+                range_value = np.max(np.abs([min_value, max_value]))
+                qint8_tensor = float_tensor * 127.0 / range_value
+                qint8_tensor = np.clip(qint8_tensor, -127, 127).astype(np.int8)
+                min_value = -range_value
+                max_value = range_value
+                # min_value = np.min(float_tensor.flatten())
+                # max_value = np.max(float_tensor.flatten())
+                # # Same processing of min-max as in quantize_weight_eightbit
+                # # function.
+                # if min_value > 0.0:
+                #     min_value = 0.0
+                # if min_value == max_value:
+                #     if abs(min_value) < 0.000001:
+                #         max_value = min_value + 1.0
+                #     elif min_value > 0:
+                #         max_value = 2 * min_value
+                #     else:
+                #         max_value = min_value / 2.0
 
-                sess = session.Session()
-                with sess.as_default():
-                    quantize_op = array_ops.quantize_v2(
-                        float_tensor,
-                        min_value,
-                        max_value,
-                        dtypes.qint8,
-                        mode=quantization_mode,
-                        round_mode="HALF_TO_EVEN")
-                    qint8_tensor = quantize_op[0].eval()
-                    # Updated min-max values should be passed to the next feeding node.
-                    min_value = quantize_op[1].eval()
-                    max_value = quantize_op[2].eval()
+                # sess = session.Session()
+                # with sess.as_default():
+                #     quantize_op = array_ops.quantize_v2(
+                #         float_tensor,
+                #         min_value,
+                #         max_value,
+                #         dtypes.qint8,
+                #         mode=quantization_mode,
+                #         round_mode="HALF_TO_EVEN")
+                #     qint8_tensor = quantize_op[0].eval()
+                #     # Updated min-max values should be passed to the next feeding node.
+                #     min_value = quantize_op[1].eval()
+                #     max_value = quantize_op[2].eval()
         elif parent == "DepthwiseConv2dNative":
             # get the max values based on dim 0 and 1 for depthwise conv
             # since, the output channel will be dim 2 * dim 3
@@ -647,6 +689,8 @@ class QuantizeNodeBase(object):
             [qint8_const_name, min_name, max_name])
 
         helper.set_attr_dtype(dequantize_node, "T", dtypes.qint8)
+        # import ipdb; ipdb.set_trace()
+        helper.set_attr_dtype(dequantize_node, "dtype", dtypes.float32)
         helper.set_attr_string(dequantize_node, "mode", b"SCALED")
         self.add_output_graph_node(qint8_const_node)
         self.add_output_graph_node(min_node)

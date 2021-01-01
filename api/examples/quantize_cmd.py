@@ -54,14 +54,14 @@ def main(_):
                                   outputs, excluded_ops, excluded_nodes,
                                   args.per_channel)
     qt.debug = args.debug
-    if 'input_graph=' in args.callback:
-        prefix = args.callback.split('input_graph=')[0]
-        postfix = ' '.join(
-            args.callback.split('input_graph=')[-1].split(' ')[1:])
-        callback_cmd = prefix + 'input_graph={} ' + postfix
-    else:
-        callback_cmd = args.callback
-    qt.gen_calib_data_cmds = callback_cmd
+    # if 'input_graph=' in args.callback:
+    #     prefix = args.callback.split('input_graph=')[0]
+    #     postfix = ' '.join(
+    #         args.callback.split('input_graph=')[-1].split(' ')[1:])
+    #     callback_cmd = prefix + 'input_graph={} ' + postfix
+    # else:
+    #     callback_cmd = args.callback
+    # qt.gen_calib_data_cmds = callback_cmd
     qt.convert()
 
 

@@ -36,6 +36,7 @@ class GraphTransformBase(object):
         if isinstance(input_pb, graph_pb2.GraphDef):
             self.input_graph = input_pb
         else:
+            self.input_graph = graph_pb2.GraphDef()
             try:
                 with gfile.Open(input_pb, 'rb') as f:
                     self.input_graph.ParseFromString(f.read())

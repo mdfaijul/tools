@@ -22,7 +22,7 @@ from tensorflow.python.framework import importer
 from tensorflow.python.framework import ops
 from tensorflow.python.platform import gfile
 from tensorflow.python.framework import graph_util
-# from tensorflow.python.tools.optimize_for_inference_lib import optimize_for_inference
+from tensorflow.python.tools.optimize_for_inference_lib import optimize_for_inference
 
 # from intel_quantization.quantize_graph import GraphRewriter
 from .transform_graph.strip_unused import StripUnusedNodes
@@ -47,7 +47,7 @@ logging.getLogger().setLevel(level=logging.INFO)
 
 tf.compat.v1.disable_eager_execution()
 
-TF_SUPPORTED_MAX_VERSION = '2.1.0'
+TF_SUPPORTED_MAX_VERSION = '2.5.0'
 TF_SUPPORTED_MIN_VERSION = '1.14.0'
 
 
@@ -79,7 +79,7 @@ class GraphConverter:
         self._calibration_data = []
         self._fp32_print_data = []
         self.gen_calib_data_cmds = None
-        self.debug = False
+        self.debug = True
         self._check_tf_version()
         self._check_args()
         self._gen_tmp_filenames()
@@ -90,13 +90,14 @@ class GraphConverter:
     def _check_tf_version(self):
         is_supported_version = False
         try:
-            from tensorflow import python
-            if (hasattr(python, "pywrap_tensorflow") and hasattr(python.pywrap_tensorflow, "IsMklEnabled")):
-                from tensorflow.python.pywrap_tensorflow import IsMklEnabled
-            else:
-                from tensorflow.python._pywrap_util_port import IsMklEnabled
-            if IsMklEnabled() and (TF_SUPPORTED_MIN_VERSION <= tf.__version__ <= TF_SUPPORTED_MAX_VERSION):
-                is_supported_version = True
+            is_supported_version = True
+            # from tensorflow import python
+            # if (hasattr(python, "pywrap_tensorflow") and hasattr(python.pywrap_tensorflow, "IsMklEnabled")):
+            #     from tensorflow.python.pywrap_tensorflow import IsMklEnabled
+            # else:
+            #     from tensorflow.python._pywrap_util_port import IsMklEnabled
+            # if IsMklEnabled() and (TF_SUPPORTED_MIN_VERSION <= tf.__version__ <= TF_SUPPORTED_MAX_VERSION):
+            #     is_supported_version = True
         except Exception as e:
             raise ValueError(e)
         finally:
@@ -142,6 +143,7 @@ class GraphConverter:
             raise ValueError(e) from e
         else:
             self.quantize()
+            pass
 
     def _get_fp32_print_node_names(self):
         offset_map = {
@@ -203,20 +205,21 @@ class GraphConverter:
 
         :return:
         """
-        if not self.gen_calib_data_cmds:
-            raise ValueError('Pass an inference command for accuracy to "gen_calib_data_cmds" '
-                             'to generate calibration data.')
+        # if not self.gen_calib_data_cmds:
+        #     raise ValueError('Pass an inference command for accuracy to "gen_calib_data_cmds" '
+        #                      'to generate calibration data.')
         try:
             self._quantize_graph()
-            if self.algo == "KL":
-                self._get_fp32_print_node_names()
-                self._generate_calibration_data(self._fp32_logged_graph,
-                                                self._fp32_print_data, True)
+            # if self.algo == "KL":
+            #     self._get_fp32_print_node_names()
+            #     self._generate_calibration_data(self._fp32_logged_graph,
+            #                                     self._fp32_print_data, True)
 
             self._insert_logging()
             self._generate_calibration_data(self._int8_logged_graph, self._calibration_data)
             self._freeze_requantization_ranges(self._kl_op_dict)
             self._fuse_requantize_with_fused_quantized_conv()
+            pass
         except Exception as e:
             logging.error('Failed to quantize graph due to: %s', str(e))
             raise ValueError(e) from e
@@ -226,15 +229,14 @@ class GraphConverter:
 
     def _optimize_frozen_fp32_graph(self):
         """Optimize fp32 frozen graph."""
-
         self._tmp_graph_def = read_graph(self.input_graph, self.input_graph_binary_flag)
-        dtypes = self._get_dtypes(self._tmp_graph_def)
+        # dtypes = self._get_dtypes(self._tmp_graph_def)
         # self._tmp_graph_def = optimize_for_inference(self._tmp_graph_def, self.inputs, self.outputs, dtypes, False)
-        self._tmp_graph_def = FuseColumnWiseMul(self._tmp_graph_def).do_transformation()
-        self._tmp_graph_def = StripUnusedNodes(self._tmp_graph_def, self.inputs, self.outputs, dtypes).do_transform()
-        self._tmp_graph_def = graph_util.remove_training_nodes(self._tmp_graph_def, self.outputs)
-        self._tmp_graph_def = FoldBatchNormNodes(self._tmp_graph_def).do_transform()
-        write_graph(self._tmp_graph_def, self._fp32_optimized_graph)
+        # self._tmp_graph_def = FuseColumnWiseMul(self._tmp_graph_def).do_transformation()
+        # self._tmp_graph_def = StripUnusedNodes(self._tmp_graph_def, self.inputs, self.outputs, dtypes).do_transform()
+        # self._tmp_graph_def = graph_util.remove_training_nodes(self._tmp_graph_def, self.outputs)
+        # self._tmp_graph_def = FoldBatchNormNodes(self._tmp_graph_def).do_transform()
+        # write_graph(self._tmp_graph_def, self._fp32_optimized_graph)
         self._fp32_origin_graph = self._tmp_graph_def
 
     def _quantize_graph(self):
@@ -252,7 +254,6 @@ class GraphConverter:
                                                 excluded_ops=self.excluded_ops,
                                                 excluded_nodes=self.excluded_nodes)
         self._tmp_graph_def = intel_quantizer.do_transform()
-
         if self.debug:
             write_graph(self._tmp_graph_def, self._int8_dynamic_range_graph)
 
