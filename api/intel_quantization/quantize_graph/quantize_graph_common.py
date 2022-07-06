@@ -122,6 +122,11 @@ class QuantizeGraphHelper(object):
             attr_value_pb2.AttrValue(type=value.as_datatype_enum))
 
     @staticmethod
+    def set_attr_dtype_list(node, key, value):
+        list_value = attr_value_pb2.AttrValue.ListValue(type=[v.as_datatype_enum for v in value])
+        node.attr[key].CopyFrom(attr_value_pb2.AttrValue(list=list_value))
+
+    @staticmethod
     def set_attr_shape(node, key, value):
         node.attr[key].CopyFrom(
             attr_value_pb2.AttrValue(

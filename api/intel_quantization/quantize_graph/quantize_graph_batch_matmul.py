@@ -13,6 +13,7 @@ class FuseNodeStartWithBatchMatmul(QuantizeNodeBase):
     patterns = [["BatchMatMulV2"],
                 ["_MklFusedBatchMatMulV2"]]
     # patterns = [['']]
+
     def __init__(self, input_graph, output_node_names, perchannel,
                  start_node_name):
         super(FuseNodeStartWithBatchMatmul,
@@ -45,7 +46,7 @@ class FuseNodeStartWithBatchMatmul(QuantizeNodeBase):
                         matched_node.node.name)
                     quantized_node_input_names = all_input_names + control_inputs
                     quantized_matmul_node = helper.create_node(
-                        "_QuantizedBatchMatMulV2AndDequantize", match_node_name[0],
+                        "_QuantizedBatchMatMul", match_node_name[0],
                         quantized_node_input_names)
 
                     for key, value in node.attr.items():
@@ -53,6 +54,14 @@ class FuseNodeStartWithBatchMatmul(QuantizeNodeBase):
                             continue
                         else:
                             helper.copy_attr(quantized_matmul_node, key, value)
+                    helper.set_attr_dtype_list(
+                        quantized_matmul_node, "Thost_inputs", [
+                            dtypes.qint8, dtypes.qint8, dtypes.float32, dtypes.float32, dtypes.float32, dtypes.float32])
+                    helper.set_attr_dtype_list(
+                        quantized_matmul_node, "Thost_outputs", [
+                            dtypes.DType(
+                                matched_node.node.attr["T"].type)])
+                    helper.set_attr_string_list(quantized_matmul_node, 'fused_ops', [b'Dequantize'])
                 elif matched_node.node.op == '_MklFusedBatchMatMulV2':
                     multiplier_node_name = matched_node.node.input[2]
                     addend_node_name = matched_node.node.input[3]
@@ -62,18 +71,34 @@ class FuseNodeStartWithBatchMatmul(QuantizeNodeBase):
                     quantized_node_input_names = all_input_names[0:2] + \
                         [multiplier_node_name, addend_node_name] + all_input_names[2:] + control_inputs
                     quantized_matmul_node = helper.create_node(
-                        "_QuantizedFusedBatchMatMulV2AndDequantize", match_node_name[0],
+                        "_QuantizedBatchMatMul", match_node_name[0],
                         quantized_node_input_names)
 
                     for key, value in node.attr.items():
-                        helper.copy_attr(quantized_matmul_node, key, value)
+                        if key in ('T', 'num_args', 'Targs', 'epsilon'):
+                            continue
+                        elif key == 'fused_ops':
+                            value.list.s.append(b'Dequantize')
+                            helper.copy_attr(quantized_matmul_node, key, value)
+                        else:
+                            helper.copy_attr(quantized_matmul_node, key, value)
+                    helper.set_attr_dtype_list(
+                        quantized_matmul_node, "Thost_inputs", [
+                            dtypes.qint8, dtypes.qint8, dtypes.DType(
+                                matched_node.node.attr["T"].type), dtypes.DType(
+                                matched_node.node.attr["T"].type), dtypes.float32, dtypes.float32, dtypes.float32, dtypes.float32])
+                    helper.set_attr_dtype_list(
+                        quantized_matmul_node, "Thost_outputs", [
+                            dtypes.DType(
+                                matched_node.node.attr["T"].type)])
                 else:
                     raise ValueError(matched_node.node.op + " is an Unexpected op.")
 
                 # Add additional attributes.
                 helper.set_attr_dtype(quantized_matmul_node, "T1", dtypes.qint8)
                 helper.set_attr_dtype(quantized_matmul_node, "T2", dtypes.qint8)
-                helper.set_attr_dtype(quantized_matmul_node, "Toutput", dtypes.DType(matched_node.node.attr["T"].type))
+                helper.set_attr_dtype(quantized_matmul_node, "Tout", dtypes.DType(matched_node.node.attr["T"].type))
+                helper.set_attr_dtype(quantized_matmul_node, "U", dtypes.DType(matched_node.node.attr["T"].type))
 
                 # Add quantized node to the graph.
                 self.add_output_graph_node(quantized_matmul_node)
@@ -81,7 +106,6 @@ class FuseNodeStartWithBatchMatmul(QuantizeNodeBase):
                 new_node = node_def_pb2.NodeDef()
                 new_node.CopyFrom(node)
                 self.add_output_graph_node(new_node)
-
 
     def get_longest_fuse(self):
         self._get_op_list()

@@ -63,19 +63,31 @@ class FuseNodeStartWithFusedMatmul(QuantizeNodeBase):
                     [bias_node_name] + add_input + \
                     all_input_names[2:] + control_inputs
                 quantized_matmul_node = helper.create_node(
-                    "_QuantizedFusedMatMulAndDequantize", match_node_name[0],
+                    "_QuantizedMatMul", match_node_name[0],
                     quantized_node_input_names)
-
                 for key, value in node.attr.items():
-                  if key == 'T':
+                  if key in ('T', 'num_args', 'Targs', 'epsilon'):
                     continue
+                  elif key == 'fused_ops':
+                    value.list.s.append(b'Dequantize')
+                    helper.copy_attr(quantized_matmul_node, key, value)
                   else:
                     helper.copy_attr(quantized_matmul_node, key, value)
                 # Add additional attributes.
+                if len(add_input) == 1:
+                  helper.set_attr_dtype_list(quantized_matmul_node, "Thost_inputs", [dtypes.quint8, dtypes.qint8, \
+                      dtypes.DType(matched_node.node.attr["T"].type), dtypes.DType(matched_node.node.attr["T"].type), \
+                      dtypes.float32, dtypes.float32, dtypes.float32, dtypes.float32])
+                else:
+                  helper.set_attr_dtype_list(quantized_matmul_node, "Thost_inputs", [dtypes.quint8, dtypes.qint8, \
+                      dtypes.DType(matched_node.node.attr["T"].type), \
+                      dtypes.float32, dtypes.float32, dtypes.float32, dtypes.float32])
+                
+                helper.set_attr_dtype_list(quantized_matmul_node, "Thost_outputs", [dtypes.DType(matched_node.node.attr["T"].type)])
                 helper.set_attr_dtype(quantized_matmul_node, "T1", dtypes.quint8)
                 helper.set_attr_dtype(quantized_matmul_node, "T2", dtypes.qint8)
-                helper.set_attr_dtype(quantized_matmul_node, "Targs", dtypes.DType(matched_node.node.attr["T"].type))
-                helper.set_attr_dtype(quantized_matmul_node, "Toutput", dtypes.DType(matched_node.node.attr["T"].type))
+                helper.set_attr_dtype(quantized_matmul_node, "Tbias", dtypes.DType(matched_node.node.attr["T"].type))
+                helper.set_attr_dtype(quantized_matmul_node, "Tout", dtypes.DType(matched_node.node.attr["T"].type))
                 helper.set_attr_string(quantized_matmul_node, "input_quant_mode", b'MIN_FIRST')
                 # Add quantized node to the graph.
                 self.add_output_graph_node(quantized_matmul_node)
@@ -116,22 +128,25 @@ class FuseNodeStartWithFusedMatmul(QuantizeNodeBase):
                     [bias_node_name] + [summand_node_name] + \
                     all_input_names[2:] + control_inputs
                 quantized_matmul_node = helper.create_node(
-                    "_QuantizedFusedMatMulAndDequantize", match_node_name[1],
+                    "_QuantizedMatMul", match_node_name[1],
                     quantized_node_input_names)
 
                 for key, value in node.attr.items():
-                  if key == 'T':
+                  if key in ('T', 'num_args', 'Targs', 'epsilon'):
                     continue
                   else:
                     helper.copy_attr(quantized_matmul_node, key, value)
                 # Add additional attributes.
+                helper.set_attr_dtype_list(quantized_matmul_node, "Thost_inputs", [dtypes.quint8, dtypes.qint8, \
+                    dtypes.DType(matched_node.node.attr["T"].type), dtypes.DType(matched_node.node.attr["T"].type), \
+                    dtypes.float32, dtypes.float32, dtypes.float32, dtypes.float32])
+                helper.set_attr_dtype_list(quantized_matmul_node, "Thost_outputs", [dtypes.DType(matched_node.node.attr["T"].type)])
                 helper.set_attr_dtype(quantized_matmul_node, "T1", dtypes.quint8)
                 helper.set_attr_dtype(quantized_matmul_node, "T2", dtypes.qint8)
-                helper.set_attr_dtype(quantized_matmul_node, "Targs", dtypes.DType(matched_node.node.attr["T"].type))
-                helper.set_attr_dtype(quantized_matmul_node, "Toutput", dtypes.DType(matched_node.node.attr["T"].type))
+                helper.set_attr_dtype(quantized_matmul_node, "Tbias", dtypes.DType(matched_node.node.attr["T"].type))
+                helper.set_attr_dtype(quantized_matmul_node, "Tout", dtypes.DType(matched_node.node.attr["T"].type))
                 helper.set_attr_string(quantized_matmul_node, "input_quant_mode", b'MIN_FIRST')
-                helper.set_attr_string_list(quantized_matmul_node, 'fused_ops', [b'BiasAdd', b'Add'])
-                helper.set_attr_int(quantized_matmul_node, 'num_args', 2)
+                helper.set_attr_string_list(quantized_matmul_node, 'fused_ops', [b'BiasAdd', b'Add', b'Dequantize'])
 
                 # Add quantized node to the graph.
                 self.add_output_graph_node(quantized_matmul_node)
