@@ -19,7 +19,7 @@
 import os
 import intel_quantization.graph_converter as converter
 
-_GRAPH = "/localdisk/amin/intel-quant-tools/bert-graphs/fp32_optimized_graph.pb"
+_GRAPH = "/localdisk/amin/intel-quant-tools/sparse-graphs/fp32_optimized_graph.pb"
 _DATA_DIR = "/localdisk/amin/data-bert/"
 
 def bert_squad_callback_cmds():

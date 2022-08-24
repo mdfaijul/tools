@@ -610,13 +610,14 @@ class QuantizeNodeBase(object):
                     max_value[np.abs(max_value) < epsilon] = epsilon
                     qint8_tensor = (float_tensor * 127.0 / ranges).astype(np.int8)
                 else:
-                    min_value = np.min(float_tensor, axis=0)
-                    max_value = np.max(float_tensor, axis=0)
-                    range_value = np.max(np.abs([min_value, max_value]), axis=0)
-                    qint8_tensor = float_tensor * 127.0 / range_value
-                    qint8_tensor = np.clip(qint8_tensor, -127, 127).astype(np.int8)
-                    min_value = -range_value
-                    max_value = range_value
+                    ranges = np.abs(float_tensor).max(axis=0)
+                    min_value = -ranges
+                    max_value = ranges
+                    # nudging min-max values outside epsilon radius around zero
+                    ranges[ranges < epsilon] = epsilon
+                    min_value[np.abs(min_value) < epsilon] = -epsilon
+                    max_value[np.abs(max_value) < epsilon] = epsilon
+                    qint8_tensor = np.clip((float_tensor * 127.0 / ranges), -127, 127).astype(np.int8)
             else:
                 min_value = np.min(float_tensor)
                 max_value = np.max(float_tensor)

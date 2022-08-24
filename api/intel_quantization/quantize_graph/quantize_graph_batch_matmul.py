@@ -10,9 +10,9 @@ import logging
 
 
 class FuseNodeStartWithBatchMatmul(QuantizeNodeBase):
-    patterns = [["BatchMatMulV2"],
-                ["_MklFusedBatchMatMulV2"]]
-    # patterns = [['']]
+    # patterns = [["BatchMatMulV2"],
+    #             ["_MklFusedBatchMatMulV2"]]
+    patterns = [['']]
     def __init__(self, input_graph, output_node_names, perchannel,
                  start_node_name):
         super(FuseNodeStartWithBatchMatmul,
